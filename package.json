@@ -1,0 +1,12 @@
+{
+  "name": "@bayleaf-ucsc/nanobot-sandbox",
+  "version": "0.1.0",
+  "description": "Independent BayLeaf stdio MCP tools and environment guidance for managed Nanobot",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "exports": { ".": "./nanobot-mcp.mjs" },
+  "files": ["nanobot-mcp.mjs", "skills/", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test test.mjs" }
+}
