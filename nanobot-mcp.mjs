@@ -6,11 +6,12 @@ import { realpathSync } from 'node:fs';
 const API = 'https://api.bayleaf.dev';
 const MAX_BYTES = 2 * 1024 * 1024;
 
-// Only the fixed BayLeaf origin receives the ordinary owner credential. Search
+// Only the fixed BayLeaf origin receives the credential or literal placeholder. Search
 // and extraction use BayLeaf's plaintext web facet, not Sealed inference.
 async function post(path, body, signal, timeout = 30, method = 'POST') {
   const key = process.env.BAYLEAF_API_KEY;
-  if (!key?.startsWith('sk-bayleaf-') || key.startsWith('sk-bayleaf-grant-')) {
+  const placeholder = /^dtn_secret_[A-Za-z0-9_-]+$/.test(key ?? '');
+  if (!placeholder && (!key?.startsWith('sk-bayleaf-') || key.startsWith('sk-bayleaf-grant-'))) {
     throw new Error('BayLeaf owner credential unavailable');
   }
   try {

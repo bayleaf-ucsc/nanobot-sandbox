@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { readFile } from 'node:fs/promises';
 import { call, serve, tools } from './nanobot-mcp.mjs';
-const key = 'sk-bayleaf-synthetic-nanobot';
+const key = 'dtn_secret_synthetic_nanobot';
 process.env.BAYLEAF_API_KEY = key;
 const seen=[];
 globalThis.fetch = async (url, init) => {
