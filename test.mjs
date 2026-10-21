@@ -19,6 +19,23 @@ globalThis.fetch = async (url, init) => {
 };
 const signal = new AbortController().signal;
 {
+  const previous=globalThis.fetch;const writes=[];
+  assert.ok(tools.find(t=>t.name==='inbox_create').inputSchema.properties.email_auth.anyOf);
+  globalThis.fetch=async(url,init)=>{writes.push(JSON.parse(init.body));return Response.json({id:'ibx_'+'a'.repeat(26),...JSON.parse(init.body),restricted_email_max_bytes:900000});};
+  for(const email_auth of [{},[],{domains:[]},{domains:['*.example.org']},{domains:['a@example.org']},{domains:['example.org','EXAMPLE.ORG']},{domains:['example.org'],selector_pins:{'other.org':['s']}},{domains:['example.org'],selector_pins:{'example.org':['x','X']}},{domains:['example.org'],selector_pins:{'example.org':['a'.repeat(64)]}},{domains:['example.org'],extra:true}])
+    await assert.rejects(call('inbox_create',{type:'email',email_auth},signal));
+  for(const email_auth of [null,{domains:['example.org']}])await assert.rejects(call('inbox_create',{type:'http',email_auth},signal));
+  assert.equal(writes.length,0);
+  for(const email_auth of [undefined,null,{domains:['EXAMPLE.ORG'],selector_pins:{'EXAMPLE.ORG':['Mail_2026']}}]){
+    const out=JSON.parse((await call('inbox_create',{type:'email',...(email_auth===undefined?{}:{email_auth})},signal)).content[0].text);
+    assert.equal(out.restricted_email_max_bytes,900000);
+    if(email_auth)assert.deepEqual(out.email_auth,{domains:['example.org'],selector_pins:{'example.org':['mail_2026']}});
+    else assert.equal(out.email_auth,email_auth);
+  }
+  assert.ok(!Object.hasOwn(writes[0],'email_auth'));assert.equal(writes[1].email_auth,null);
+  globalThis.fetch=previous;
+}
+{
   const previous=globalThis.fetch;
   const payload={owner:{max_inboxes:17,inboxes:3,remaining_inboxes:14,max_bytes:500,bytes:30,remaining_bytes:470,messages:2},per_inbox:{max_bytes:200,max_messages:50,max_daily_receipts:10,max_credentials:4},payload:{http_max_bytes:100,email_max_bytes:100,restricted_email_max_bytes:50,restricted_email_creation_enabled:false},lifetime:{min_seconds:60,max_seconds:600,presets_seconds:{},default_ttl_seconds:null},retention_seconds:1000,destroy_quiesce_seconds:0};
   globalThis.fetch=async(url,init)=>{assert.equal(String(url),'https://api.bayleaf.dev/inboxes/limits');assert.equal(init.method,'GET');assert.equal(init.headers.Authorization,'Bearer '+key);return Response.json({...payload,private:'omit'});};

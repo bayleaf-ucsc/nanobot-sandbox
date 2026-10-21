@@ -83,7 +83,37 @@ function ids(args, ...names) {
   for (const name of names) if (typeof args[name] !== 'string' || !IDS[name].test(args[name])) throw new ToolError(`Invalid ${name}`);
   return names.map(name => args[name]);
 }
-const INBOX_FIELDS = ['id','type','label','state','address','url','created_at','expires_at','cleanup_not_before','usage','limits','closed'];
+const EMAIL_AUTH_FIELD = { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, required: ['domains'], properties: {
+  domains: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string', minLength: 3, maxLength: 253 } },
+  selector_pins: { type: 'object', maxProperties: 8, additionalProperties: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', minLength: 1, maxLength: 253 } } },
+} }], description: 'Email only. Omit/null for unrestricted mail; otherwise exact DKIM signing/From domains (not people). Optional pins must match the SAME passing signature. Immutable: create a new inbox to change policy. Restricted raw mail at most 1 MiB; read inbox limits for effective ceiling and creation availability. Ask for explicit user agreement; no native approval UI.' };
+function emailPolicy(type, value) {
+  if (value === undefined) return {};
+  if (type !== 'email') throw new ToolError('email_auth is email only');
+  if (value === null) return { email_auth: null };
+  const record = v => v && typeof v === 'object' && !Array.isArray(v);
+  if (!record(value) || Object.keys(value).some(k => !['domains','selector_pins'].includes(k)) || !Array.isArray(value.domains) || value.domains.length < 1 || value.domains.length > 8) throw new ToolError('Invalid email_auth');
+  const domains = value.domains.map(d => {
+    if (typeof d !== 'string' || d.length > 253 || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(d)) throw new ToolError('Invalid email_auth domain');
+    return d.toLowerCase();
+  });
+  if (new Set(domains).size !== domains.length) throw new ToolError('Duplicate email_auth domain');
+  const selector_pins = {};
+  if (value.selector_pins !== undefined) {
+    if (!record(value.selector_pins) || Object.keys(value.selector_pins).length > 8) throw new ToolError('Invalid selector_pins');
+    for (const [domain,pins] of Object.entries(value.selector_pins)) {
+      const d = domain.toLowerCase();
+      if (!domains.includes(d) || Object.hasOwn(selector_pins,d) || !Array.isArray(pins) || pins.length < 1 || pins.length > 4) throw new ToolError('Invalid selector pin domain');
+      selector_pins[d] = pins.map(s => {
+        if (typeof s !== 'string' || s.length + d.length + 12 > 253 || !/^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/i.test(s)) throw new ToolError('Invalid selector');
+        return s.toLowerCase();
+      });
+      if (new Set(selector_pins[d]).size !== pins.length) throw new ToolError('Duplicate selector');
+    }
+  }
+  return { email_auth: { domains, selector_pins } };
+}
+const INBOX_FIELDS = ['id','type','label','state','address','email_auth','restricted_email_max_bytes','url','created_at','expires_at','cleanup_not_before','usage','limits','closed'];
 const lifetimeFields = {
   ttl_seconds:{type:'integer',minimum:60,maximum:2592000,description:'Endpoint lifetime, 60 seconds to 30 days. Destroys the endpoint and stored content at expiry. Never combine with preset.'},
   preset:{enum:['experiment'],description:'15-minute endpoint lifetime. Never combine with ttl_seconds.'},
@@ -175,7 +205,7 @@ export const tools = [
   {name:'inboxes', description:'List the user\u2019s BayLeaf Inboxes: email addresses or webhook URLs that collect things while they are away. Use for "check my inbox" or "what inboxes do I have". There are no notifications: check only when asked, never poll.',
     inputSchema:object({})},
   {name:'inbox_create', description:'Create a BayLeaf Inbox when the user needs an email address or webhook URL that collects reports, alerts or form posts while they and this sandbox are away. email gives an address; http gives a URL capturing any request, open until the user mints a token themselves. Addresses are not secrets. The default is 100 inboxes per owner, including those still destroying; check authenticated /inboxes/limits for current capacity. Messages expire after 90 days. Ask first. Reception never wakes or notifies this agent.',
-    inputSchema:{...object({type:{enum:['email','http']}, label:{type:'string', minLength:1, maxLength:64},...lifetimeFields}), required:['type']}},
+    inputSchema:{...object({type:{enum:['email','http']}, label:{type:'string', minLength:1, maxLength:64},email_auth:EMAIL_AUTH_FIELD,...lifetimeFields}), required:['type']}},
   {name:'inbox_lifetime',description:'Set or shorten an inbox endpoint lifetime, never extend or remove it. Expiry destroys its address/URL and all stored messages. Only on explicit user agreement: this MCP client has no native approval UI. A conflict means the requested deadline would extend the existing lifetime. Reads never renew it.',
     inputSchema:{...object({inbox_id:{type:'string'},...lifetimeFields}),required:['inbox_id']}},
   {name:'inbox_events',description:'Catch up on arrivals since a saved cursor, including while this client was off. One finite page of minimal references, not live following or a work queue. Omit after to replay; now starts at the current head. Save the returned cursor even on empty pages; more means another page is available. Deduplicate by message_id. HTTP 410 means replay without after. No polling, inference or background subscription. For explicitly requested live SSE consult the bayleaf-inboxes skill script workflow.',
@@ -238,7 +268,8 @@ export async function call(name, args, signal) {
   if (name === 'inbox_create') {
     if (!['email','http'].includes(args.type)) throw new ToolError('type must be email or http');
     if (args.label !== undefined && (typeof args.label !== 'string' || !args.label || args.label.length > 64)) throw new ToolError('Invalid label');
-    data = select(await inbox('', signal, 'POST', {type:args.type, ...(args.label === undefined ? {} : {label:args.label}),...lifetime(args)}), INBOX_FIELDS);
+    const policy = emailPolicy(args.type, args.email_auth);
+    data = select(await inbox('', signal, 'POST', {type:args.type, ...(args.label === undefined ? {} : {label:args.label}),...lifetime(args),...policy}), INBOX_FIELDS);
   }
   if(name==='inbox_lifetime'){
     const [id]=ids(args,'inbox_id');

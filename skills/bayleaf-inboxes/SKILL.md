@@ -53,7 +53,18 @@ before creating one. Inboxes belong to the user's BayLeaf account, not this sand
 
 - `mcp_bayleaf_inboxes`: list inboxes, their address or URL, usage and limits.
 - `mcp_bayleaf_inbox_create`: `type` `email` (an address) or `http` (a URL that
-  captures any method, path and body). Optional `label`. The default is 100 inboxes
+  captures any method, path and body). Optional `label`. Email creation also accepts
+  `email_auth: {"domains":["example.org"],"selector_pins":{"example.org":["mail2026"]}}`.
+  Omit or null means unrestricted email. Exact domains authenticate delegated DKIM
+  domain authority, not a person/mailbox; replay remains possible. Pins are optional,
+  DNS-case-insensitive and must match the SAME passing signature as the domain;
+  underscore selectors are allowed. Agree domains/pins explicitly with the user:
+  Nanobot has no native approval UI. Policy is immutable; create a new inbox to
+  change it and plan selector rotation. Restricted raw MIME is at most 1 MiB;
+  read `mcp_bayleaf_inbox_limits` for the effective ceiling and
+  `payload.restricted_email_creation_enabled`. Readback preserves canonical
+  `email_auth` and `restricted_email_max_bytes`. HTTP rejects policy, even null.
+  Never ask for sender secrets. The default is 100 inboxes
   per owner, including those still destroying; this is not guaranteed current capacity.
   Before capacity planning or creation, call `mcp_bayleaf_inbox_limits` (MCP tool
   `inbox_limits`, no arguments).
