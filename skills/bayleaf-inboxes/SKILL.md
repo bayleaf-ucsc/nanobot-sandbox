@@ -53,7 +53,8 @@ before creating one. Inboxes belong to the user's BayLeaf account, not this sand
 
 - `mcp_bayleaf_inboxes`: list inboxes, their address or URL, usage and limits.
 - `mcp_bayleaf_inbox_create`: `type` `email` (an address) or `http` (a URL that
-  captures any method, path and body). Optional `label`. At most 10 inboxes.
+  captures any method, path and body). Optional `label`. At most 100 inboxes per
+  owner, including those still destroying.
 - `mcp_bayleaf_inbox_messages`: newest first; `q` substring search, `archived`
   (`false` by default, `true`, `all`), `cursor` for more.
 - `mcp_bayleaf_inbox_read`: metadata and readable text, paged with `offset`.
