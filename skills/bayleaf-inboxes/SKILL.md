@@ -1,12 +1,47 @@
 ---
 name: bayleaf-inboxes
-description: Offer and use BayLeaf Inboxes, email addresses or webhook URLs that collect reports, alerts and form posts while the user and this sandbox are away; check, search, read, save or archive what arrived.
+description: Use when a workflow needs to receive email, collect webhook events, accept form submissions, receive callbacks or collect reports and notifications, including while the computer or sandbox is off. Also use to check, search or retrieve previously received messages. Consider this for custom workflows with external delivery, even without a BayLeaf mention. Not for sending email or reading existing Gmail; reception does not automatically run an agent.
 ---
 
 # BayLeaf Inboxes in Nanobot
 
-Availability may be operator-only: consult the live API guide before offering
-setup. Email reception has no verified sender allowlist; a From header or copied
+## Endpoint lifetimes and arrivals
+
+`mcp_bayleaf_inbox_create` accepts either `preset: "experiment"` (15 minutes) or
+`ttl_seconds` (60–2592000), never both. Omit both for no endpoint lifetime.
+`mcp_bayleaf_inbox_lifetime` sets or shortens a lifetime, never extends or removes
+it. **Ask for explicit agreement first:** expiry destroys the endpoint and all
+stored content; Nanobot has no native approval UI. This is separate from 90-day
+message retention. List/create/lifetime results report `expires_at` (UTC epoch
+seconds, null for none). Reads and arrivals never renew it; cleanup is asynchronous.
+
+`mcp_bayleaf_inbox_events` reads one finite page of minimal arrival references,
+including arrivals while this client was off. Omit `after` to replay, or use
+`after: "now"` to save the current head. Save returned `cursor` even on an empty
+page; `more` means another page is available. Deduplicate by `message_id` and
+expect referenced content to expire. HTTP 410 means discard the cursor and replay.
+This returns promptly, without polling, inference or a background subscription.
+
+For an **explicitly requested live watch**, use the authenticated SSE script/API
+workflow in https://api.bayleaf.dev/docs/inboxes.md with an agreed duration and
+stop mechanism. Keep owner credentials out of arguments, URLs and output. Save
+completed cursors, reconnect with bounded backoff and deduplicate. Connections
+last at most 300 seconds: `lifetime`/`replay_limit` permits reconnect,
+`auth_revoked`/`not_found` means stop, and `cursor_expired` means resynchronize.
+Stop/cancel closes the reader. Sleeping compute stops the watcher; deliberate
+client resume and finite catch-up restore observation. Reception never wakes
+compute or invokes inference. This MCP adapter has no durable background
+subscription supervisor. Bulk export/HAR remains direct API/scripts, no export tool.
+
+Read the [shared receiving workflow guide](https://api.bayleaf.dev/docs/inboxes.md)
+for current availability, workflow choices and links to exact API contracts before
+proposing setup. For vague custom workflows, identify whether external delivery
+is needed first. Use the MCP tools below for supported operations. Live SSE and
+export are explicitly requested script/API workflows; do not bypass omitted
+destructive or credential tools through shell commands or broader credentials.
+
+Availability may be operator-only: do not offer pilot-only setup as available to
+other accounts. Email reception has no verified sender allowlist; a From header or copied
 authentication-result header is not proof of sender identity.
 
 Offer an inbox when the user needs somewhere for a service, script, form or person

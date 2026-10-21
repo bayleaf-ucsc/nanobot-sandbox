@@ -18,6 +18,28 @@ globalThis.fetch = async (url, init) => {
   return Response.json({url:'https://owner-private-example.bayleaf-proxies.dev/', expires_at:'2026-12-01T00:00:00Z',private:'omit'});
 };
 const signal = new AbortController().signal;
+// TTL and event input validation happens before any owner request. No native
+// approval exists in this harness, so the advertised mutation boundary stays explicit.
+{
+  const previous=globalThis.fetch,id='ibx_'+'a'.repeat(26);let requests=[];
+  globalThis.fetch=async(url,init)=>{requests.push({url,init});return Response.json({id,type:'http',expires_at:1900000000,cleanup_not_before:1900000900});};
+  for(const args of [{ttl_seconds:59},{ttl_seconds:1.5},{ttl_seconds:2592001},{preset:'other'},{ttl_seconds:60,preset:'experiment'}])await assert.rejects(call('inbox_create',{type:'http',...args},signal));
+  await assert.rejects(call('inbox_lifetime',{inbox_id:id},signal));assert.equal(requests.length,0);
+  const made=JSON.parse((await call('inbox_create',{type:'http',preset:'experiment'},signal)).content[0].text);assert.equal(made.expires_at,1900000000);
+  const updated=JSON.parse((await call('inbox_lifetime',{inbox_id:id,ttl_seconds:60},signal)).content[0].text);assert.equal(updated.cleanup_not_before,1900000900);
+  assert.deepEqual(JSON.parse(requests[0].init.body),{type:'http',preset:'experiment'});assert.equal(requests[1].init.method,'PATCH');
+  let page={events:[],cursor:'opaque',more:false};requests=[];
+  globalThis.fetch=async(url,init)=>{requests.push({url,init});return Response.json(page);};
+  assert.deepEqual(JSON.parse((await call('inbox_events',{inbox_id:id,after:'now'},signal)).content[0].text),page);
+  assert.ok(requests[0].url.endsWith('/events?limit=25&after=now'));
+  for(const after of ['','x'.repeat(201),'a&limit=999',123,['now']])await assert.rejects(call('inbox_events',{inbox_id:id,after},signal));
+  assert.equal(requests.length,1);
+  page={events:[{event_id:'evt_1',type:'message.received',message_id:'msg_'+'b'.repeat(26),cursor:'next',created_at:1,body:'omit'}],cursor:'next',more:true};
+  assert.ok(!(await call('inbox_events',{inbox_id:id},signal)).content[0].text.includes('omit'));
+  page.events[0].type='execute';await assert.rejects(call('inbox_events',{inbox_id:id},signal));
+  globalThis.fetch=async()=>new Response('private upstream',{status:410});await assert.rejects(call('inbox_events',{inbox_id:id},signal),/replay without after/);
+  globalThis.fetch=previous;
+}
 for (const [name,args] of [['usage',{}],['search',{query:'test'}],['fetch',{url:'https://example.test'}],['expose',{port:8888}],['unexpose',{port:8888}]]) {
   const result = await call(name,args,signal);assert(!JSON.stringify(result).includes(key));assert(!JSON.stringify(result).includes('omit'));
 }
@@ -70,7 +92,7 @@ input.end();
 
 // Inboxes: exactly the approved narrowed set, no delete/destroy/credential verbs.
 assert.deepEqual(tools.map(tool=>tool.name),['search','fetch','usage','expose','unexpose',
-  'inboxes','inbox_create','inbox_messages','inbox_read','inbox_save','inbox_archive']);
+  'inboxes','inbox_create','inbox_lifetime','inbox_events','inbox_messages','inbox_read','inbox_save','inbox_archive']);
 assert(!tools.some(tool=>/delete|destroy|credential|token|revoke/i.test(tool.name)));
 for(const tool of tools.filter(tool=>tool.name.startsWith('inbox'))){
   assert(!/\u2014/.test(tool.description));assert(!Object.keys(tool.inputSchema.properties).some(name=>/key|token|credential/.test(name)));

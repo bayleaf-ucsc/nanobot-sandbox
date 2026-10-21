@@ -9,18 +9,25 @@ runtime dependencies or skill-generation coupling to another harness.
 
 ## Runtime contract
 
-Node 22+. Eleven tools: search, fetch, usage, private expose, unexpose, plus
+Node 22+. Thirteen tools: search, fetch, usage, private expose, unexpose, plus
 BayLeaf Inboxes (`inboxes`, `inbox_create`, `inbox_messages`, `inbox_read`,
-`inbox_save`, `inbox_archive`). There are no public-exposure, header-injection,
+`inbox_save`, `inbox_archive`, `inbox_lifetime`, `inbox_events`). There are no public-exposure, header-injection,
 lifecycle/destruction or credential-display tools. Mutations are not protected by
 a native approval UI; scope is narrower than the ordinary owner key's authority.
 Same-user programs can read that key.
 
-The adapter lists all eleven tools, but the parent installer's `enabledTools`
-filter exposes the six inbox tools and installs their skill only when
+The adapter lists all thirteen tools, but the parent installer's `enabledTools`
+filter must include all eight inbox tools and installs their skill only when
 `assets['_inboxes'] is True`. Disabled installations advertise neither the inbox
 skill nor a pointer to it in the always-loaded sandbox skill. The adapter's tool
 list test covers its full inventory, not the installer's enabled subset.
+
+The parent installer must add `inbox_lifetime` and `inbox_events` to its
+`INBOX_TOOLS` allowlist before delivering this revision. Creation accepts an
+optional endpoint lifetime; shortening one can destroy stored content on expiry
+and requires explicit user agreement, still without a native approval UI. Arrival
+reads are finite bounded pages, not a persistent subscription. Live SSE and bulk
+export remain explicitly requested direct API/script workflows.
 
 Inboxes are narrowed further. Their content is written by outside senders, so it
 is the most likely prompt-injection channel, and destructive verbs are what an
