@@ -53,8 +53,15 @@ before creating one. Inboxes belong to the user's BayLeaf account, not this sand
 
 - `mcp_bayleaf_inboxes`: list inboxes, their address or URL, usage and limits.
 - `mcp_bayleaf_inbox_create`: `type` `email` (an address) or `http` (a URL that
-  captures any method, path and body). Optional `label`. At most 100 inboxes per
-  owner, including those still destroying.
+  captures any method, path and body). Optional `label`. The default is 100 inboxes
+  per owner, including those still destroying; this is not guaranteed current capacity.
+  Before capacity planning or creation, call `mcp_bayleaf_inbox_limits` (MCP tool
+  `inbox_limits`, no arguments).
+  For direct scripts, read authenticated `GET /inboxes/limits` with the
+  existing owner bearer for authoritative enforcement limits and current owner
+  usage/remaining capacity. Never ask for or expose the bearer. Sender tokens,
+  Campus Pass and inference grants are not owner authority. If unavailable,
+  report current capacity as unknown rather than assuming defaults.
 - `mcp_bayleaf_inbox_messages`: newest first; `q` substring search, `archived`
   (`false` by default, `true`, `all`), `cursor` for more.
 - `mcp_bayleaf_inbox_read`: metadata and readable text, paged with `offset`.

@@ -18,6 +18,18 @@ globalThis.fetch = async (url, init) => {
   return Response.json({url:'https://owner-private-example.bayleaf-proxies.dev/', expires_at:'2026-12-01T00:00:00Z',private:'omit'});
 };
 const signal = new AbortController().signal;
+{
+  const previous=globalThis.fetch;
+  const payload={owner:{max_inboxes:17,inboxes:3,remaining_inboxes:14,max_bytes:500,bytes:30,remaining_bytes:470,messages:2},per_inbox:{max_bytes:200,max_messages:50,max_daily_receipts:10,max_credentials:4},payload:{http_max_bytes:100,email_max_bytes:100,restricted_email_max_bytes:50,restricted_email_creation_enabled:false},lifetime:{min_seconds:60,max_seconds:600,presets_seconds:{},default_ttl_seconds:null},retention_seconds:1000,destroy_quiesce_seconds:0};
+  globalThis.fetch=async(url,init)=>{assert.equal(String(url),'https://api.bayleaf.dev/inboxes/limits');assert.equal(init.method,'GET');assert.equal(init.headers.Authorization,'Bearer '+key);return Response.json({...payload,private:'omit'});};
+  assert.deepEqual(JSON.parse((await call('inbox_limits',{},signal)).content[0].text),payload);
+  await assert.rejects(call('inbox_limits',{owner:'other'},signal));
+  payload.owner.remaining_inboxes=-1;
+  await assert.rejects(call('inbox_limits',{},signal),/limits response/);
+  globalThis.fetch=async()=>new Response('private',{status:503});
+  await assert.rejects(call('inbox_limits',{},signal));
+  globalThis.fetch=previous;
+}
 // TTL and event input validation happens before any owner request. No native
 // approval exists in this harness, so the advertised mutation boundary stays explicit.
 {
@@ -92,7 +104,7 @@ input.end();
 
 // Inboxes: exactly the approved narrowed set, no delete/destroy/credential verbs.
 assert.deepEqual(tools.map(tool=>tool.name),['search','fetch','usage','expose','unexpose',
-  'inboxes','inbox_create','inbox_lifetime','inbox_events','inbox_messages','inbox_read','inbox_save','inbox_archive']);
+  'inbox_limits','inboxes','inbox_create','inbox_lifetime','inbox_events','inbox_messages','inbox_read','inbox_save','inbox_archive']);
 assert(!tools.some(tool=>/delete|destroy|credential|token|revoke/i.test(tool.name)));
 for(const tool of tools.filter(tool=>tool.name.startsWith('inbox'))){
   assert(!/\u2014/.test(tool.description));assert(!Object.keys(tool.inputSchema.properties).some(name=>/key|token|credential/.test(name)));

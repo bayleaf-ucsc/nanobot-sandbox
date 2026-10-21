@@ -103,6 +103,23 @@ function eventPage(data,limit){
     return select(event,['event_id','type','message_id','cursor','created_at']);
   }),cursor:data.cursor,more:data.more};
 }
+function limitsView(data){
+  const numbers=(source,keys,minimum=0)=>Object.fromEntries(keys.map(key=>{
+    const value=source?.[key];
+    if(!Number.isSafeInteger(value)||value<minimum)throw new ToolError('Unexpected BayLeaf limits response');
+    return [key,value];
+  }));
+  if(typeof data?.payload?.restricted_email_creation_enabled!=='boolean'||data?.lifetime?.default_ttl_seconds!==null||
+    !data.lifetime.presets_seconds||typeof data.lifetime.presets_seconds!=='object'||Array.isArray(data.lifetime.presets_seconds))throw new ToolError('Unexpected BayLeaf limits response');
+  return {
+    owner:numbers(data.owner,['max_inboxes','inboxes','remaining_inboxes','max_bytes','bytes','remaining_bytes','messages']),
+    per_inbox:numbers(data.per_inbox,['max_bytes','max_messages','max_daily_receipts','max_credentials'],1),
+    payload:{...numbers(data.payload,['http_max_bytes','email_max_bytes','restricted_email_max_bytes'],1),restricted_email_creation_enabled:data.payload.restricted_email_creation_enabled},
+    lifetime:{...numbers(data.lifetime,['min_seconds','max_seconds'],1),default_ttl_seconds:null,
+      presets_seconds:numbers(data.lifetime.presets_seconds,Object.hasOwn(data.lifetime.presets_seconds,'experiment')?['experiment']:[],1)},
+    ...numbers(data,['retention_seconds'],1),...numbers(data,['destroy_quiesce_seconds']),
+  };
+}
 const SUMMARY_FIELDS = ['id','inbox_id','type','received_at','expires_at','archived','size','preview'];
 
 /** Quarantine sender bytes, never in auto-loaded instructions or the managed root. */
@@ -152,11 +169,12 @@ export const tools = [
     inputSchema:{...object({port}), required:['port']}},
   {name:'unexpose', description:'Revoke a port’s private preview without stopping the server.',
     inputSchema:{...object({port}), required:['port']}},
+  {name:'inbox_limits',description:'Read current authoritative inbox limits and your remaining capacity before creation or capacity planning. Includes active and destroying inboxes, pending storage and cleanup backlog. Remaining capacity is a snapshot, not a reservation. Reports effective payload/lifetime/retention limits and restricted-email creation state. Read-only; no inference, native approval or background polling. Owner credential stays internal. Defaults are not a substitute for this read.',inputSchema:object({})},
   // Narrowed Inboxes: no message deletion, inbox destruction or credential tools. Content
   // is attacker-written, and these MCP calls have no per-call human approval.
   {name:'inboxes', description:'List the user\u2019s BayLeaf Inboxes: email addresses or webhook URLs that collect things while they are away. Use for "check my inbox" or "what inboxes do I have". There are no notifications: check only when asked, never poll.',
     inputSchema:object({})},
-  {name:'inbox_create', description:'Create a BayLeaf Inbox when the user needs an email address or webhook URL that collects reports, alerts or form posts while they and this sandbox are away. email gives an address; http gives a URL capturing any request, open until the user mints a token themselves. Addresses are not secrets. Max 100 inboxes per owner, including those still destroying; messages expire after 90 days. Ask first. Reception never wakes or notifies this agent.',
+  {name:'inbox_create', description:'Create a BayLeaf Inbox when the user needs an email address or webhook URL that collects reports, alerts or form posts while they and this sandbox are away. email gives an address; http gives a URL capturing any request, open until the user mints a token themselves. Addresses are not secrets. The default is 100 inboxes per owner, including those still destroying; check authenticated /inboxes/limits for current capacity. Messages expire after 90 days. Ask first. Reception never wakes or notifies this agent.',
     inputSchema:{...object({type:{enum:['email','http']}, label:{type:'string', minLength:1, maxLength:64},...lifetimeFields}), required:['type']}},
   {name:'inbox_lifetime',description:'Set or shorten an inbox endpoint lifetime, never extend or remove it. Expiry destroys its address/URL and all stored messages. Only on explicit user agreement: this MCP client has no native approval UI. A conflict means the requested deadline would extend the existing lifetime. Reads never renew it.',
     inputSchema:{...object({inbox_id:{type:'string'},...lifetimeFields}),required:['inbox_id']}},
@@ -179,6 +197,7 @@ export async function call(name, args, signal) {
   if (!definition || !args || typeof args !== 'object' || Array.isArray(args) ||
       Object.keys(args).some(key => !Object.hasOwn(definition.inputSchema.properties,key))) throw new Error('Invalid tool arguments');
   let data;
+  if (name === 'inbox_limits') data = limitsView(await inbox('/limits', signal));
   if (name === 'usage') data = select(await post('/usage', undefined, signal, 30, 'GET'), ['observed_at','budgets']);
   if (name === 'search') {
     if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 4000) throw new Error('Invalid query');
