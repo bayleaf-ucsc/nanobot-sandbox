@@ -113,6 +113,12 @@ function emailPolicy(type, value) {
   }
   return { email_auth: { domains, selector_pins } };
 }
+const ACCESS_FIELD = {enum:['open','closed'], description:'Required for http, rejected for email. closed denies anonymous delivery (401) from birth until the user mints a sender token; open lets anyone with the URL deliver until the first token permanently closes it. No default and no reopen. Use closed for anything private; open only for throwaway use or senders that cannot send Authorization: Bearer (such as GitHub, Stripe or Slack webhooks).'};
+function webhookAccess(type, value) {
+  if (type !== 'http') { if (value !== undefined) throw new ToolError('access is http only'); return {}; }
+  if (!['open','closed'].includes(value)) throw new ToolError('access must be open or closed for an http inbox');
+  return {access:value};
+}
 const INBOX_FIELDS = ['id','type','label','state','address','email_auth','restricted_email_max_bytes','url','created_at','expires_at','cleanup_not_before','usage','limits','closed'];
 const lifetimeFields = {
   ttl_seconds:{type:'integer',minimum:60,maximum:2592000,description:'Endpoint lifetime, 60 seconds to 30 days. Destroys the endpoint and stored content at expiry. Never combine with preset.'},
@@ -204,8 +210,8 @@ export const tools = [
   // is attacker-written, and these MCP calls have no per-call human approval.
   {name:'inboxes', description:'List the user\u2019s BayLeaf Inboxes: email addresses or webhook URLs that collect things while they are away. Use for "check my inbox" or "what inboxes do I have". There are no notifications: check only when asked, never poll.',
     inputSchema:object({})},
-  {name:'inbox_create', description:'Create a BayLeaf Inbox when the user needs an email address or webhook URL that collects reports, alerts or form posts while they and this sandbox are away. email gives an address; http gives a URL capturing any request, open until the user mints a token themselves. Addresses are not secrets. The default is 100 inboxes per owner, including those still destroying; check authenticated /inboxes/limits for current capacity. Messages expire after 90 days. Ask first. Reception never wakes or notifies this agent.',
-    inputSchema:{...object({type:{enum:['email','http']}, label:{type:'string', minLength:1, maxLength:64},email_auth:EMAIL_AUTH_FIELD,...lifetimeFields}), required:['type']}},
+  {name:'inbox_create', description:'Create a BayLeaf Inbox when the user needs an email address or webhook URL that collects reports, alerts or form posts while they and this sandbox are away. email gives an address; http gives a URL capturing any request and needs access chosen at creation: closed denies anonymous delivery until the user mints a token themselves; open accepts anyone with the URL until that first token permanently closes it. Prefer closed unless the user wants a throwaway URL or the sender cannot set an Authorization header. Addresses are not secrets. The default is 100 inboxes per owner, including those still destroying; check authenticated /inboxes/limits for current capacity. Messages expire after 90 days. Ask first. Reception never wakes or notifies this agent.',
+    inputSchema:{...object({type:{enum:['email','http']}, label:{type:'string', minLength:1, maxLength:64},access:ACCESS_FIELD,email_auth:EMAIL_AUTH_FIELD,...lifetimeFields}), required:['type']}},
   {name:'inbox_lifetime',description:'Set or shorten an inbox endpoint lifetime, never extend or remove it. Expiry destroys its address/URL and all stored messages. Only on explicit user agreement: this MCP client has no native approval UI. A conflict means the requested deadline would extend the existing lifetime. Reads never renew it.',
     inputSchema:{...object({inbox_id:{type:'string'},...lifetimeFields}),required:['inbox_id']}},
   {name:'inbox_events',description:'Catch up on arrivals since a saved cursor, including while this client was off. One finite page of minimal references, not live following or a work queue. Omit after to replay; now starts at the current head. Save the returned cursor even on empty pages; more means another page is available. Deduplicate by message_id. HTTP 410 means replay without after. No polling, inference or background subscription. For explicitly requested live SSE consult the bayleaf-inboxes skill script workflow.',
@@ -268,8 +274,8 @@ export async function call(name, args, signal) {
   if (name === 'inbox_create') {
     if (!['email','http'].includes(args.type)) throw new ToolError('type must be email or http');
     if (args.label !== undefined && (typeof args.label !== 'string' || !args.label || args.label.length > 64)) throw new ToolError('Invalid label');
-    const policy = emailPolicy(args.type, args.email_auth);
-    data = select(await inbox('', signal, 'POST', {type:args.type, ...(args.label === undefined ? {} : {label:args.label}),...lifetime(args),...policy}), INBOX_FIELDS);
+    const gate = webhookAccess(args.type, args.access), policy = emailPolicy(args.type, args.email_auth);
+    data = select(await inbox('', signal, 'POST', {type:args.type, ...gate, ...(args.label === undefined ? {} : {label:args.label}),...lifetime(args),...policy}), INBOX_FIELDS);
   }
   if(name==='inbox_lifetime'){
     const [id]=ids(args,'inbox_id');

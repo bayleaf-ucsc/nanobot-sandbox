@@ -24,8 +24,13 @@ const signal = new AbortController().signal;
   globalThis.fetch=async(url,init)=>{writes.push(JSON.parse(init.body));return Response.json({id:'ibx_'+'a'.repeat(26),...JSON.parse(init.body),restricted_email_max_bytes:900000});};
   for(const email_auth of [{},[],{domains:[]},{domains:['*.example.org']},{domains:['a@example.org']},{domains:['example.org','EXAMPLE.ORG']},{domains:['example.org'],selector_pins:{'other.org':['s']}},{domains:['example.org'],selector_pins:{'example.org':['x','X']}},{domains:['example.org'],selector_pins:{'example.org':['a'.repeat(64)]}},{domains:['example.org'],extra:true}])
     await assert.rejects(call('inbox_create',{type:'email',email_auth},signal));
-  for(const email_auth of [null,{domains:['example.org']}])await assert.rejects(call('inbox_create',{type:'http',email_auth},signal));
+  for(const email_auth of [null,{domains:['example.org']}])await assert.rejects(call('inbox_create',{type:'http',access:'closed',email_auth},signal));
+  assert.deepEqual(tools.find(t=>t.name==='inbox_create').inputSchema.properties.access.enum,['open','closed']);
+  for(const access of [undefined,null,'',true,'OPEN','private'])await assert.rejects(call('inbox_create',{type:'http',...(access===undefined?{}:{access})},signal),/access/);
+  for(const access of ['open','closed',null])await assert.rejects(call('inbox_create',{type:'email',access},signal),/http only/);
   assert.equal(writes.length,0);
+  for(const access of ['closed','open'])assert.equal(JSON.parse((await call('inbox_create',{type:'http',access},signal)).content[0].text).type,'http');
+  assert.deepEqual(writes.splice(0),[{type:'http',access:'closed'},{type:'http',access:'open'}]);
   for(const email_auth of [undefined,null,{domains:['EXAMPLE.ORG'],selector_pins:{'EXAMPLE.ORG':['Mail_2026']}}]){
     const out=JSON.parse((await call('inbox_create',{type:'email',...(email_auth===undefined?{}:{email_auth})},signal)).content[0].text);
     assert.equal(out.restricted_email_max_bytes,900000);
@@ -52,11 +57,11 @@ const signal = new AbortController().signal;
 {
   const previous=globalThis.fetch,id='ibx_'+'a'.repeat(26);let requests=[];
   globalThis.fetch=async(url,init)=>{requests.push({url,init});return Response.json({id,type:'http',expires_at:1900000000,cleanup_not_before:1900000900});};
-  for(const args of [{ttl_seconds:59},{ttl_seconds:1.5},{ttl_seconds:2592001},{preset:'other'},{ttl_seconds:60,preset:'experiment'}])await assert.rejects(call('inbox_create',{type:'http',...args},signal));
+  for(const args of [{ttl_seconds:59},{ttl_seconds:1.5},{ttl_seconds:2592001},{preset:'other'},{ttl_seconds:60,preset:'experiment'}])await assert.rejects(call('inbox_create',{type:'http',access:'closed',...args},signal));
   await assert.rejects(call('inbox_lifetime',{inbox_id:id},signal));assert.equal(requests.length,0);
-  const made=JSON.parse((await call('inbox_create',{type:'http',preset:'experiment'},signal)).content[0].text);assert.equal(made.expires_at,1900000000);
+  const made=JSON.parse((await call('inbox_create',{type:'http',access:'closed',preset:'experiment'},signal)).content[0].text);assert.equal(made.expires_at,1900000000);
   const updated=JSON.parse((await call('inbox_lifetime',{inbox_id:id,ttl_seconds:60},signal)).content[0].text);assert.equal(updated.cleanup_not_before,1900000900);
-  assert.deepEqual(JSON.parse(requests[0].init.body),{type:'http',preset:'experiment'});assert.equal(requests[1].init.method,'PATCH');
+  assert.deepEqual(JSON.parse(requests[0].init.body),{type:'http',access:'closed',preset:'experiment'});assert.equal(requests[1].init.method,'PATCH');
   let page={events:[],cursor:'opaque',more:false};requests=[];
   globalThis.fetch=async(url,init)=>{requests.push({url,init});return Response.json(page);};
   assert.deepEqual(JSON.parse((await call('inbox_events',{inbox_id:id,after:'now'},signal)).content[0].text),page);
@@ -147,7 +152,7 @@ globalThis.fetch=async(url,init)=>{
 };
 const textOf=result=>result.content[0].text;
 const listed=JSON.parse(textOf(await call('inboxes',{},signal)));assert.equal(listed.inboxes[0].id,ibx);assert(!JSON.stringify(listed).includes('omit'));
-await call('inbox_create',{type:'http',label:'reports'},signal);assert.deepEqual(JSON.parse(calls.at(-1).init.body),{type:'http',label:'reports'});
+await call('inbox_create',{type:'http',access:'open',label:'reports'},signal);assert.deepEqual(JSON.parse(calls.at(-1).init.body),{type:'http',access:'open',label:'reports'});
 // Sender text sits inside one marker pair it cannot close or forge.
 for(const output of [textOf(await call('inbox_messages',{inbox_id:ibx,q:'report',archived:'all',limit:5},signal)),
     textOf(await call('inbox_read',{inbox_id:ibx,message_id:msg},signal))]){

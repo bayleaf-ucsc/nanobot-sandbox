@@ -91,9 +91,22 @@ explicitly request a schedule.
 
 ## Open and closed webhooks
 
-An `http` inbox starts **open**: anyone with the URL can post. Addresses and URLs
-are not secrets (they appear in DNS, TLS and mail relays). To close an `http`
-inbox, the user mints a bearer token themselves, outside this agent, for example:
+Every `http` inbox chooses `access` at creation; there is no default, and email
+inboxes reject the field. Addresses and URLs are not secrets (they appear in DNS,
+TLS and mail relays), so the choice matters:
+
+- `closed` denies anonymous delivery (401) from birth, so the URL can be handed
+  out before any sender is configured with no anonymous window. Recommend it for
+  anything private.
+- `open` lets anyone with the URL post until the first sender token is minted,
+  which closes it permanently. Use it only for throwaway or public collection, or
+  for senders that cannot send `Authorization: Bearer` (GitHub, Stripe and Slack
+  webhooks, for example).
+
+Ask the user which they want before creating. Revoking the last token never
+reopens an inbox, and there is no reopen operation. To let a sender into a closed
+inbox (or to close an open one), the user mints a bearer token themselves,
+outside this agent, for example:
 
 ```sh
 curl -X POST https://api.bayleaf.dev/inboxes/<inbox_id>/credentials \
